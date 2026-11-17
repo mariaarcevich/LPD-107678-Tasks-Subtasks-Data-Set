@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Project Tasks and Subtasks - CMS</title>
+
+<script>(function(){
+  var S=['light','light-hc','dark','dark-hc'];
+  function apply(){try{
+    var r=document.documentElement;
+    var s=localStorage.getItem('vanilla-skin')||'light';
+    S.forEach(function(c){r.classList.remove(c);});
+    r.classList.add(S.indexOf(s)>-1?s:'light');
+    /* CMS prototype: CMS Style radii always on (4 / 8 / 16). */
+    r.style.setProperty('--rounded-sm','4px');
+    r.style.setProperty('--rounded-md','8px');
+    r.style.setProperty('--rounded-lg','16px');
+  }catch(e){}}
+  apply();
+  window.addEventListener('pageshow',apply);
+})()</script>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="tokens-high-contrast.css">
+<link rel="stylesheet" href="tokens-dark.css">
+<link rel="stylesheet" href="components.css">
+<script src="icons.js"></script>
+
+<style>
+  /* ── Prototype-only chrome — layout glue, not new design-system components.
+        Source: Figma LPD-107678 (nodes 79:20011 collapsed, 105:54927 expanded). ── */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--color-white); font-family: var(--font-family-base); color: var(--color-dark); }
+
+  .app { display: flex; flex-direction: column; height: 100vh; }
+  .app-row { display: flex; flex: 1 1 auto; min-height: 0; }
+
+  .app .control-menu { height: 56px; flex-shrink: 0; border-bottom-color: var(--color-secondary-l2); }
+  .app .control-menu__title { font-size: var(--font-size-xl); }
+  .brand { display: inline-flex; align-items: center; gap: var(--spacing-3); }
+
+  .app .cms-menu { flex-shrink: 0; overflow-y: auto; padding-top: var(--spacing-5); }
+  .app .cms-menu .vert-nav__item { text-decoration: none; }
+  .vert-nav__list { list-style: none; margin: 0; padding: 0; }
+
+  /* Main column — the page scrolls; there is no pagination */
+  .page { flex: 1 1 auto; min-width: 0; overflow-y: auto; display: flex; flex-direction: column; }
+  .page__header { padding: var(--spacing-6) var(--spacing-7) var(--spacing-5); }
+  .page__tabs { padding: 0 var(--spacing-7); }
+  .page .management-toolbar { border-bottom: 0; }
+  .page .search .input__field { height: 32px; }
+  .management-toolbar__bar[hidden], .management-toolbar__results[hidden], .management-toolbar .btn[hidden] { display: none; }
+
+  /* Quick filters — four summary cards; each one is also a filter */
+  .quick-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--spacing-5); padding: var(--spacing-7) var(--spacing-7) var(--spacing-4); }
+  .quick-filter { display: flex; align-items: center; gap: var(--spacing-3); width: 100%; padding: var(--spacing-4) var(--spacing-5); border: 1px solid var(--color-secondary-l2); border-radius: var(--rounded-md); background: var(--color-white); font: inherit; color: inherit; text-align: left; cursor: pointer; }
+  .quick-filter:hover { border-color: var(--color-secondary-l1); }
+  .quick-filter:focus-visible { outline: 0; box-shadow: var(--focus-ring); }
+  .quick-filter[aria-pressed="true"] { border-color: var(--color-primary); box-shadow: inset 0 0 0 1px var(--color-primary); }
+  .quick-filter__icon { display: inline-flex; align-items: center; justify-content: center; width: var(--spacing-9); height: var(--spacing-9); border-radius: var(--rounded-sm); flex-shrink: 0; }
+  .quick-filter__icon--all { background: var(--color-secondary-l3); color: var(--color-dark); }
+  .quick-filter__icon--progress { background: var(--color-info-l2); color: var(--color-info-d1); }
+  .quick-filter__icon--blocked { background: var(--color-danger-l2); color: var(--color-danger-d1); }
+  .quick-filter__icon--overdue { background: var(--color-warning-l2); color: var(--color-warning-d1); }
+  .quick-filter__text { display: flex; flex-direction: column; line-height: var(--line-height-base); }
+  .quick-filter__value { display: flex; align-items: center; min-height: var(--spacing-7); font-size: var(--font-size-md); font-weight: var(--font-weight-bold); color: var(--color-dark); }
+  .quick-filter__value .sk { width: var(--spacing-7); height: var(--spacing-5); border-radius: var(--rounded-sm); }
+  .quick-filter__label { font-size: var(--font-size-base); color: var(--color-secondary); }
+
+  /* Table — full bleed tree grid; flat mode adds the Parent column */
+  .page .table { width: 100%; table-layout: fixed; }
+  .page .table[hidden] { display: none; }
+  .page .table th[hidden] { display: none; }
+  .page .table .table__icon { width: 16px; height: 16px; }
+  .col-title { width: 34%; }
+  .table.is-flat .col-title { width: 26%; }
+  .col-parent { width: 18%; }
+  .th-sort { display: inline-flex; align-items: center; justify-content: space-between; gap: var(--spacing-3); width: 100%; }
+  .th-sort .btn.is-active { color: var(--color-primary); }
+
+  /* Title cell: 24px of indent per level, then a fixed 24px toggle slot so icons line up within a level */
+  .tree-cell { display: flex; align-items: center; gap: var(--spacing-3); min-width: 0; }
+  .tree-cell[data-level="2"] { padding-left: var(--spacing-7); }
+  .tree-cell[data-level="3"] { padding-left: var(--spacing-10); }
+  .tree-cell__toggle { display: inline-flex; align-items: center; justify-content: center; width: var(--spacing-7); height: var(--spacing-7); flex-shrink: 0; }
+  .tree-cell .table__title, .parent-link { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tree-cell .loading-animation { margin: 0; }
+  .parent-link { display: block; color: var(--color-dark); text-decoration: underline; }
+  .parent-link:hover { color: var(--color-primary); }
+  .cell-muted { color: var(--color-dark); opacity: 0.55; }
+
+  /* Next-batch loader — only visible while a batch is on its way; there is no end-of-list text */
+  .list-loader { display: flex; justify-content: center; padding: var(--spacing-7) var(--spacing-7) var(--spacing-9); }
+  .list-loader[hidden], .empty-state[hidden] { display: none; }
+  .list-loader .loading-animation { margin: 0; }
+
+  /* Prototype controls — not part of the product UI */
+  .proto-controls { position: fixed; right: var(--spacing-7); bottom: var(--spacing-7); z-index: 100; display: flex; align-items: center; gap: var(--spacing-4); padding: var(--spacing-3) var(--spacing-4); border: 1px solid var(--color-secondary-l2); border-radius: var(--rounded-md); background: var(--color-white); box-shadow: var(--shadow-dropdown); font-size: var(--font-size-sm); }
+  .proto-controls__label { font-weight: var(--font-weight-bold); color: var(--color-dark); }
+</style>
+</head>
+<body>
+
+<!-- EDIT BELOW. Compose with classes from components.css only. -->
+
+<div class="app">
+
+  <!-- ═════════ Top bar ═════════ -->
+  <header class="control-menu">
+    <div class="control-menu__left">
+      <div class="control-menu__btns">
+        <button class="control-menu__btn" type="button" aria-label="Toggle Product Menu">
+          <svg class="lexicon-icon"><use href="#product-menu-open"></use></svg>
+        </button>
+      </div>
+      <span class="brand">
+        <span class="sticker sticker--outline sticker--primary" aria-hidden="true"><svg class="lexicon-icon lexicon-icon-sm"><use href="#document-vector"></use></svg></span>
+        <span class="control-menu__title">Liferay CMS</span>
+      </span>
+    </div>
+    <div class="control-menu__right">
+      <button class="control-menu__btn" type="button" aria-label="Open Applications Menu">
+        <svg class="lexicon-icon"><use href="#grid"></use></svg>
+      </button>
+      <span class="sticker sticker--lg sticker--circle sticker--outline sticker--warning" aria-label="Test Test" role="img">
+        <svg class="lexicon-icon"><use href="#user"></use></svg>
+      </span>
+    </div>
+  </header>
+
+  <div class="app-row">
+
+    <!-- ═════════ Sidebar ═════════ -->
+    <nav class="cms-menu" aria-label="CMS Navigation">
+      <ul class="cms-menu__groups">
+        <li>
+          <ul class="vert-nav__list">
+            <li><a href="#" class="vert-nav__item"><span class="vert-nav__icon-cell"><svg class="lexicon-icon vert-nav__icon"><use href="#home"></use></svg></span>Home</a></li>
+            <li><a href="#" class="vert-nav__item"><span class="vert-nav__icon-cell"><svg class="lexicon-icon vert-nav__icon"><use href="#analytics"></use></svg></span>Dashboard</a></li>
+          </ul>
+        </li>
+        <li>
+          <button class="vert-nav__group-header" type="button" aria-expanded="true">Assets <svg class="lexicon-icon"><use href="#angle-down-small"></use></svg></button>
+          <ul class="vert-nav__list">
+            <li><a href="#" class="vert-nav__item"><span class="vert-nav__icon-cell"><svg class="lexicon-icon vert-nav__icon"><use href="#sheets"></use></svg></span>All</a></li>
+            <li><a href="#" class="vert-nav__item"><span class="vert-nav__icon-cell"><svg class="lexicon-icon vert-nav__icon"><use href="#catalog"></use></svg></span>Content</a></li>
+            <li><a href="#" class="vert-nav__item"><span class="vert-nav__icon-cell"><svg class="lexicon-icon vert-nav__icon"><use href="#documents-and-media"></use></svg></span>Files</a></li>
+          </ul>
+        </li>
+        <li>
+          <ul class="vert-nav__list">
+            <li><a href="#" class="vert-nav__item"><span class="vert-nav__icon-cell"><svg class="lexicon-icon vert-nav__icon"><use href="#users"></use></svg></span>Shared with Me</a></li>
+          </ul>
+        </li>
+        <li>
+          <button class="vert-nav__group-header" type="button" aria-expanded="true">Planning <svg class="lexicon-icon"><use href="#angle-down-small"></use></svg></button>
+          <ul class="vert-nav__list">
+            <li><a href="#" class="vert-nav__item is-active" aria-current="page"><span class="vert-nav__icon-cell"><svg class="lexicon-icon vert-nav__icon"><use href="#archive"></use></svg></span>Projects</a></li>
+            <li><a href="#" class="vert-nav__item"><span class="vert-nav__icon-cell"><svg class="lexicon-icon vert-nav__icon"><use href="#paste"></use></svg></span>Tasks</a></li>
+          </ul>
+        </li>
+        <li>
+          <button class="vert-nav__group-header" type="button" aria-expanded="true">Admin <svg class="lexicon-icon"><use href="#angle-down-small"></use></svg></button>
+          <ul class="vert-nav__list">
+            <li><a href="#" class="vert-nav__item"><span class="vert-nav__icon-cell"><svg class="lexicon-icon vert-nav__icon"><use href="#edit-layout"></use></svg></span>Structures</a></li>
+            <li><a href="#" class="vert-nav__item"><span class="vert-nav__icon-cell"><svg class="lexicon-icon vert-nav__icon"><use href="#vocabulary"></use></svg></span>Categorization</a></li>
+          </ul>
+        </li>
+        <li>
+          <div class="vert-nav__group-header">
+            Spaces
+            <span class="vert-nav__group-actions">
+              <button class="btn btn--secondary btn--xs btn--icon" type="button" aria-label="Add Space">
+                <svg class="lexicon-icon lexicon-icon-sm"><use href="#plus"></use></svg>
+              </button>
+              <svg class="lexicon-icon"><use href="#angle-down-small"></use></svg>
+            </span>
+          </div>
+          <ul class="vert-nav__list">
+            <li><a href="#" class="vert-nav__item"><span class="vert-nav__icon-cell"><span class="sticker sticker--outline sticker--primary">M</span></span>Marketing</a></li>
+            <li><a href="#" class="vert-nav__item"><span class="vert-nav__icon-cell"><svg class="lexicon-icon vert-nav__icon"><use href="#box-container"></use></svg></span>All Spaces</a></li>
+          </ul>
+        </li>
+        <li>
+          <ul class="vert-nav__list">
+            <li><a href="#" class="vert-nav__item"><span class="vert-nav__icon-cell"><svg class="lexicon-icon vert-nav__icon"><use href="#trash"></use></svg></span>Recycle Bin</a></li>
+          </ul>
+        </li>
+      </ul>
+    </nav>
+
+    <!-- ═════════ Main ═════════ -->
+    <main class="page" id="page">
+      <div class="page__header">
+        <ol class="cms-breadcrumb">
+          <li class="cms-breadcrumb__item">
+            <a href="#">Projects</a>
+            <svg class="lexicon-icon cms-breadcrumb__sep"><use href="#slash"></use></svg>
+          </li>
+          <li class="cms-breadcrumb__item" aria-current="page">
+            <span>GOV Digital</span>
+            <button class="cms-breadcrumb__action" type="button" aria-label="More Actions">
+              <svg class="lexicon-icon lexicon-icon-sm"><use href="#ellipsis-v"></use></svg>
+            </button>
+          </li>
+        </ol>
+      </div>
+
+      <div class="page__tabs">
+        <nav class="tabs" role="tablist">
+          <button class="tabs__tab" role="tab" aria-selected="false" type="button">Details</button>
+          <button class="tabs__tab is-active" role="tab" aria-selected="true" type="button">Tasks</button>
+          <button class="tabs__tab" role="tab" aria-selected="false" type="button">Assets</button>
+        </nav>
+      </div>
+
+      <!-- Counts cover tasks AND subtasks of the whole project and come from the server, independent of the table -->
+      <div class="quick-filters" id="quick-filters">
+        <button class="quick-filter" type="button" data-filter="" aria-pressed="true">
+          <span class="quick-filter__icon quick-filter__icon--all"><svg class="lexicon-icon"><use href="#task-status"></use></svg></span>
+          <span class="quick-filter__text"><span class="quick-filter__value" data-count="total"></span><span class="quick-filter__label">Total Tasks</span></span>
+        </button>
+        <button class="quick-filter" type="button" data-filter="progress" aria-pressed="false">
+          <span class="quick-filter__icon quick-filter__icon--progress"><svg class="lexicon-icon"><use href="#analytics"></use></svg></span>
+          <span class="quick-filter__text"><span class="quick-filter__value" data-count="progress"></span><span class="quick-filter__label">In Progress</span></span>
+        </button>
+        <button class="quick-filter" type="button" data-filter="blocked" aria-pressed="false">
+          <span class="quick-filter__icon quick-filter__icon--blocked"><svg class="lexicon-icon"><use href="#block"></use></svg></span>
+          <span class="quick-filter__text"><span class="quick-filter__value" data-count="blocked"></span><span class="quick-filter__label">Blocked</span></span>
+        </button>
+        <button class="quick-filter" type="button" data-filter="overdue" aria-pressed="false">
+          <span class="quick-filter__icon quick-filter__icon--overdue"><svg class="lexicon-icon"><use href="#exclamation-full"></use></svg></span>
+          <span class="quick-filter__text"><span class="quick-filter__value" data-count="overdue"></span><span class="quick-filter__label">Overdue</span></span>
+        </button>
+      </div>
+
+      <div class="management-toolbar" id="toolbar">
+        <!-- Default bar -->
+        <div class="management-toolbar__bar" id="bar-default">
+          <label class="checkbox" aria-label="Select All Loaded Items">
+            <input type="checkbox" class="checkbox__input" data-select-loaded>
+            <span class="checkbox__box">
+              <svg class="checkbox__icon checkbox__icon--check"><use href="#check-small"></use></svg>
+              <svg class="checkbox__icon checkbox__icon--hr"><use href="#hr"></use></svg>
+            </span>
+          </label>
+          <button class="btn btn--borderless btn--sm" type="button">
+            <svg class="lexicon-icon"><use href="#filter"></use></svg>
+            Filter
+            <svg class="lexicon-icon lexicon-icon-sm"><use href="#caret-bottom"></use></svg>
+          </button>
+          <button class="btn btn--borderless btn--sm" type="button">
+            <svg class="lexicon-icon"><use href="#order-list-down"></use></svg>
+            Order
+            <svg class="lexicon-icon lexicon-icon-sm"><use href="#caret-bottom"></use></svg>
+          </button>
+          <div class="management-toolbar__search">
+            <div class="search">
+              <input class="input__field search__field" type="search" placeholder="Search..." aria-label="Search Tasks and Subtasks" id="search">
+              <button class="search__clear" aria-label="Clear Search" type="button" id="search-clear" hidden>
+                <svg class="lexicon-icon"><use href="#times-circle-full"></use></svg>
+              </button>
+              <button class="search__submit" aria-label="Search" type="button" id="search-submit">
+                <svg class="lexicon-icon"><use href="#search"></use></svg>
+              </button>
+            </div>
+          </div>
+          <button class="btn btn--borderless btn--sm" type="button" aria-label="Table View Selected">
+            <svg class="lexicon-icon"><use href="#table"></use></svg>
+            <svg class="lexicon-icon lexicon-icon-sm"><use href="#caret-double"></use></svg>
+          </button>
+          <button class="btn btn--primary btn--sm" type="button">New</button>
+        </div>
+
+        <!-- Active (selection) bar -->
+        <div class="management-toolbar__bar" id="bar-active" hidden>
+          <label class="checkbox" aria-label="Select All Loaded Items">
+            <input type="checkbox" class="checkbox__input" data-select-loaded>
+            <span class="checkbox__box">
+              <svg class="checkbox__icon checkbox__icon--check"><use href="#check-small"></use></svg>
+              <svg class="checkbox__icon checkbox__icon--hr"><use href="#hr"></use></svg>
+            </span>
+          </label>
+          <span class="management-toolbar__count" id="selected-count"></span>
+          <button class="btn btn--borderless btn--sm" type="button" id="clear-selection">Clear</button>
+          <button class="btn btn--borderless btn--sm" type="button" id="select-everything">Select All</button>
+          <div class="management-toolbar__spacer"></div>
+          <button class="btn btn--borderless btn--sm" type="button"><svg class="lexicon-icon"><use href="#user"></use></svg>Assign</button>
+          <button class="btn btn--borderless btn--sm" type="button"><svg class="lexicon-icon"><use href="#check-circle"></use></svg>Change State</button>
+          <button class="btn btn--borderless btn--sm btn--danger" type="button"><svg class="lexicon-icon"><use href="#trash"></use></svg>Delete</button>
+        </div>
+
+        <!-- Results bar — only in flat mode (search or filter active) -->
+        <div class="management-toolbar__results" id="results-bar" hidden>
+          <span class="management-toolbar__results-text" id="results-text"></span>
+          <button class="management-toolbar__results-clear btn btn--borderless btn--sm" type="button" id="results-clear">Clear</button>
+        </div>
+      </div>
+
+      <table class="table table--list table--head-bordered table--hover" role="treegrid" aria-label="Project Tasks" id="tasks-table" aria-busy="true">
+        <thead>
+          <tr>
+            <th class="table__cell--gutter" aria-label="Item Selection"></th>
+            <th class="col-title"><span class="th-sort">Title <button class="btn btn--borderless btn--xs btn--icon" type="button" aria-label="Sort by Title" data-sort="title"><svg class="lexicon-icon"><use href="#order-arrow"></use></svg></button></span></th>
+            <th class="col-parent" id="col-parent" hidden>Parent</th>
+            <th>Assigned To</th>
+            <th><span class="th-sort">Due Date <button class="btn btn--borderless btn--xs btn--icon" type="button" aria-label="Sort by Due Date" data-sort="due"><svg class="lexicon-icon"><use href="#order-arrow"></use></svg></button></span></th>
+            <th>State</th>
+            <th class="table__cell--gutter">
+              <button class="btn btn--borderless btn--xs btn--icon" type="button" aria-label="Manage Columns Visibility"><svg class="lexicon-icon lexicon-icon-sm"><use href="#caret-bottom"></use></svg></button>
+            </th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+
+      <div class="empty-state" id="empty" hidden>
+        <div class="empty-state__media">
+          <img src="illustrations/illustration-telescope.svg" alt="">
+        </div>
+        <h2 class="empty-state__title">No Results Found</h2>
+        <p class="empty-state__text">Try a different search term or clear the filters.</p>
+      </div>
+
+      <!-- Replaces the pagination bar: a spinner while the next batch loads, nothing otherwise -->
+      <div class="list-loader" id="list-loader" hidden></div>
+      <span class="sr-only" aria-live="polite" id="announcer"></span>
+    </main>
+  </div>
+</div>
+
+<!-- Prototype controls — not part of the product UI -->
+<div class="proto-controls" role="group" aria-label="Prototype Controls">
+  <span class="proto-controls__label">Response Time</span>
+  <div class="btn-group" id="latency">
+    <button class="btn btn--secondary btn--xs is-active" type="button" data-latency="900" aria-pressed="true">Fast</button>
+    <button class="btn btn--secondary btn--xs" type="button" data-latency="3000" aria-pressed="false">Slow</button>
+  </div>
+  <button class="btn btn--borderless btn--xs" type="button" id="reset">
+    <svg class="lexicon-icon lexicon-icon-sm"><use href="#reload"></use></svg>
+    Reset
+  </button>
+</div>
+
+<script>
+(function () {
+  /* ══════════════════════════════════════════════════════════════
+     Behaviour being proposed for the data set (FDS) in this view
+     ──────────────────────────────────────────────────────────────
+     1. TREE MODE (no search, no filter)
+        · No pagination. Top-level tasks load in batches of BATCH as the
+          user scrolls; a spinner shows under the last row while a batch
+          loads, nothing once everything is loaded.
+        · Subtasks are fetched the first time their parent is expanded,
+          at any depth — same as Clay Table "Async Load" (`<Row lazy>` +
+          `onLoadMore`): the chevron turns into a 16px spinner in the
+          same 24px slot, the row stays collapsed, and it opens with its
+          children once they arrive. Loaded children are cached.
+        · Each row carries `subtaskCount` so the toggle shows without
+          fetching.
+        · Sorting applies to top-level tasks; subtasks are sorted the
+          same way inside their parent (the children request gets the
+          same sort parameter).
+     2. FLAT MODE (any search term or filter, incl. the summary cards)
+        · Matching tasks and subtasks of any level in one flat list,
+          same batch loading. No toggles, no indent; each row shows its
+          type icon and a Parent column. Clearing returns to the tree.
+     3. SELECTION
+        · Header checkbox = loaded rows. The active bar shows
+          "X of Y Selected" + "Select All", which selects the whole
+          result set server-side (rows loaded later arrive selected).
+        · Selecting a task does not select its subtasks.
+     4. SUMMARY CARDS
+        · Counts = tasks + subtasks of the whole project, from a
+          server-side count; independent of the table loading. Each card
+          shows a skeleton until its count arrives.
+     ══════════════════════════════════════════════════════════════ */
+
+  var BATCH = 20;
+  var latency = 900;
+  var TODAY = new Date(2026, 10, 17);
+
+  /* ── Fake server data ── */
+  var ACTIONS = ['Draft Copy for', 'Review', 'Translate', 'Design Banner for', 'Publish', 'Run QA on', 'Update SEO for', 'Approve'];
+  var AREAS = ['Homepage', 'Service Catalog', 'Tax Portal', 'Permits Form', 'News Section', 'Accessibility Statement'];
+  var SUBTASKS = ['Write First Draft', 'Collect Stakeholder Feedback', 'Review Legal Wording', 'Prepare Images', 'Check Accessibility', 'Request Final Approval'];
+  var SUBSUBTASKS = ['Gather Sources', 'Proofread Text', 'Validate Links'];
+  var PEOPLE = ['Amanda', 'Maria M.', 'Carolina', 'Javier', 'Lucia'];
+  var STATES = [
+    { name: 'In Progress', tone: 'info' },
+    { name: 'Done', tone: 'success' },
+    { name: 'Blocked', tone: 'danger' }
+  ];
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var FILTERS = {
+    progress: { label: 'State: In Progress', test: function (t) { return t.state.name === 'In Progress'; } },
+    blocked: { label: 'State: Blocked', test: function (t) { return t.state.name === 'Blocked'; } },
+    overdue: { label: 'Overdue', test: function (t) { return t.due < TODAY && t.state.name !== 'Done'; } }
+  };
+
+  function makeDue(seed) { return new Date(2026, 10, 3 + seed * 2, 9 + (seed % 8), seed % 2 ? 30 : 0); }
+  function fmtDue(d) {
+    var h = d.getHours(), m = d.getMinutes();
+    return MONTHS[d.getMonth()] + ' ' + d.getDate() + ', ' + (h % 12 || 12) + ':' + (m < 10 ? '0' : '') + m + ' ' + (h >= 12 ? 'PM' : 'AM');
+  }
+
+  var DB = [], ROOTS = [], BY_ID = {};
+  function add(t) { DB.push(t); BY_ID[t.id] = t; return t; }
+  for (var i = 0; i < 48; i++) {
+    var r = add({ id: 't' + i, level: 1, parentId: null, kids: [],
+      title: i === 0 ? 'Create Blog' : ACTIONS[i % ACTIONS.length] + ' ' + AREAS[Math.floor(i / ACTIONS.length)],
+      assignee: PEOPLE[i % PEOPLE.length], due: makeDue(i), state: STATES[i === 0 ? 1 : (i * 7) % 3] });
+    ROOTS.push(r);
+    if (i % 2) continue;
+    for (var j = 0; j < 2 + (i % 3); j++) {
+      var s = add({ id: r.id + '-' + j, level: 2, parentId: r.id, kids: [],
+        title: SUBTASKS[(i + j) % SUBTASKS.length], assignee: PEOPLE[(i + j + 1) % PEOPLE.length],
+        due: makeDue(i + j + 2), state: STATES[(i + j) % 3] });
+      r.kids.push(s);
+      if (j) continue;
+      for (var k = 0; k < 2; k++) {
+        s.kids.push(add({ id: s.id + '-' + k, level: 3, parentId: s.id, kids: [],
+          title: SUBSUBTASKS[(i + k) % SUBSUBTASKS.length], assignee: PEOPLE[(i + k + 2) % PEOPLE.length],
+          due: makeDue(i + k + 4), state: STATES[(i + k + 1) % 3] }));
+      }
+    }
+  }
+
+  function sortList(list, sort) {
+    var out = list.slice();
+    if (!sort) return out;
+    out.sort(function (a, b) {
+      var d = sort.key === 'title' ? a.title.localeCompare(b.title) : a.due - b.due;
+      return d * sort.dir;
+    });
+    return out;
+  }
+
+  function isFlat(q) { return !!(q.search || q.filter); }
+
+  function matches(t, q) {
+    if (q.filter && !FILTERS[q.filter].test(t)) return false;
+    if (q.search && t.title.toLowerCase().indexOf(q.search.toLowerCase()) === -1) return false;
+    return true;
+  }
+
+  function toClient(t) {
+    return { id: t.id, level: t.level, title: t.title, assignee: t.assignee, due: fmtDue(t.due), state: t.state,
+      subtaskCount: t.kids.length, parentId: t.parentId, parentTitle: t.parentId ? BY_ID[t.parentId].title : null };
+  }
+
+  var timers = [];
+  function respond(make) {
+    return new Promise(function (resolve) { timers.push(setTimeout(function () { resolve(make()); }, latency)); });
+  }
+
+  /* GET /tasks — tree: root tasks only · flat: every task/subtask matching search + filter.
+     `total` drives the batch loading; `itemTotal` is what "Select All" selects. */
+  function fetchPage(q, offset) {
+    return respond(function () {
+      var flat = isFlat(q);
+      var src = flat ? sortList(DB.filter(function (t) { return matches(t, q); }), q.sort) : sortList(ROOTS, q.sort);
+      return { items: src.slice(offset, offset + BATCH).map(toClient), total: src.length, itemTotal: flat ? src.length : DB.length };
+    });
+  }
+
+  /* GET /tasks?parentId={id} — every direct subtask of one parent, same sort */
+  function fetchChildren(id, q) {
+    return respond(function () { return sortList(BY_ID[id].kids, q.sort).map(toClient); });
+  }
+
+  /* GET /tasks/counts — tasks + subtasks of the whole project */
+  function fetchCounts() {
+    /* Own timer: a table reload (search, filter, sort) must not cancel it */
+    return new Promise(function (resolve) {
+      setTimeout(function () {
+        resolve({
+          total: DB.length,
+          progress: DB.filter(FILTERS.progress.test).length,
+          blocked: DB.filter(FILTERS.blocked.test).length,
+          overdue: DB.filter(FILTERS.overdue.test).length
+        });
+      }, latency);
+    });
+  }
+
+  /* ── Client state ── */
+  var q, rows, total, itemTotal, loadingMore, nodes, sel, runId = 0;
+  var $ = function (id) { return document.getElementById(id); };
+  var rowsEl = $('rows'), tableEl = $('tasks-table'), loaderEl = $('list-loader'), pageEl = $('page');
+  var announcer = $('announcer'), searchEl = $('search');
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  /* ── Selection ── */
+  function resetSelection() { sel = { all: false, ids: {}, excluded: {} }; }
+  function isSel(id) { return sel.all ? !sel.excluded[id] : !!sel.ids[id]; }
+  function selCount() { return sel.all ? itemTotal - Object.keys(sel.excluded).length : Object.keys(sel.ids).length; }
+  function setSel(id, on) {
+    if (sel.all) { if (on) delete sel.excluded[id]; else sel.excluded[id] = true; }
+    else if (on) sel.ids[id] = true; else delete sel.ids[id];
+    if (selCount() === 0) resetSelection();
+  }
+
+  /* ── Rendering ── */
+  function taskRow(t, flat) {
+    var hasKids = !flat && t.subtaskCount > 0;
+    var toggle = '';
+    if (hasKids && t.loading) {
+      toggle = '<span class="loading-animation loading-animation-sm loading-animation-secondary" role="img" aria-label="Loading Subtasks"></span>';
+    } else if (hasKids) {
+      toggle = '<button class="btn btn--borderless btn--xs btn--icon" type="button" data-toggle="' + t.id + '" aria-expanded="' + !!t.expanded + '" aria-label="' + (t.expanded ? 'Collapse ' : 'Expand ') + esc(t.title) + '">' +
+        '<svg class="lexicon-icon"><use href="#' + (t.expanded ? 'angle-down' : 'angle-right') + '"></use></svg></button>';
+    }
+    var on = isSel(t.id);
+    var type = t.level === 1 ? 'Task' : 'Subtask';
+    return '<tr role="row" aria-level="' + (flat ? 1 : t.level) + '"' + (hasKids ? ' aria-expanded="' + !!t.expanded + '"' : '') + (on ? ' class="is-selected"' : '') + '>' +
+      '<td class="table__cell--gutter"><label class="checkbox" aria-label="Select ' + esc(t.title) + '"><input type="checkbox" class="checkbox__input" data-check="' + t.id + '"' + (on ? ' checked' : '') + '><span class="checkbox__box"><svg class="checkbox__icon checkbox__icon--check"><use href="#check-small"></use></svg></span></label></td>' +
+      '<td><div class="tree-cell" data-level="' + (flat ? 1 : t.level) + '">' + (flat ? '' : '<span class="tree-cell__toggle">' + toggle + '</span>') +
+        '<svg class="lexicon-icon table__icon" role="img" aria-label="' + type + '"><title>' + type + '</title><use href="#' + (t.level === 1 ? 'check-square' : 'indent-more') + '"></use></svg>' +
+        '<a href="#" class="table__title">' + esc(t.title) + '</a></div></td>' +
+      (flat ? '<td>' + (t.parentTitle ? '<a href="#" class="parent-link">' + esc(t.parentTitle) + '</a>' : '<span class="cell-muted">—</span>') + '</td>' : '') +
+      '<td>' + esc(t.assignee) + '</td>' +
+      '<td>' + esc(t.due) + '</td>' +
+      '<td><span class="label label--sm label--bold label--' + t.state.tone + '">' + t.state.name + '</span></td>' +
+      '<td class="table__cell--gutter"><button class="btn btn--borderless btn--sm btn--icon" type="button" aria-label="' + esc(t.title) + ' Actions"><svg class="lexicon-icon"><use href="#ellipsis-v"></use></svg></button></td>' +
+    '</tr>';
+  }
+
+  function walk(list, html, flat) {
+    list.forEach(function (t) {
+      html.push(taskRow(t, flat));
+      if (!flat && t.expanded && t.children) walk(t.children, html, flat);
+    });
+  }
+
+  function render(focusId) {
+    var flat = isFlat(q);
+    var html = [];
+    walk(rows, html, flat);
+    rowsEl.innerHTML = html.join('');
+    tableEl.classList.toggle('is-flat', flat);
+    tableEl.setAttribute('role', flat ? 'grid' : 'treegrid');
+    $('col-parent').hidden = !flat;
+    tableEl.setAttribute('aria-busy', loadingMore ? 'true' : 'false');
+
+    var empty = !loadingMore && total === 0;
+    tableEl.hidden = empty;
+    $('empty').hidden = !empty;
+
+    loaderEl.hidden = !loadingMore;
+    loaderEl.innerHTML = loadingMore
+      ? '<span class="loading-animation loading-animation-secondary ' + (rows.length ? 'loading-animation-sm' : 'loading-animation-md') + '" role="img" aria-label="' + (rows.length ? 'Loading More Tasks' : 'Loading Tasks') + '"></span>'
+      : '';
+
+    /* Results bar */
+    var showResults = flat && total !== null;
+    $('results-bar').hidden = !showResults;
+    if (showResults) {
+      var parts = [];
+      if (q.search) parts.push('<strong>"' + esc(q.search) + '"</strong>');
+      if (q.filter) parts.push('<strong>' + FILTERS[q.filter].label + '</strong>');
+      $('results-text').innerHTML = total + (total === 1 ? ' Result' : ' Results') + ' for ' + parts.join(' and ');
+    }
+
+    /* Toolbar: default vs active */
+    var count = selCount();
+    var active = count > 0;
+    $('toolbar').classList.toggle('management-toolbar--active', active);
+    $('bar-default').hidden = active;
+    $('bar-active').hidden = !active;
+    $('selected-count').textContent = count + ' of ' + itemTotal + ' Selected';
+    $('select-everything').hidden = count >= itemTotal;
+
+    var loaded = Object.keys(nodes);
+    var loadedSel = loaded.filter(isSel).length;
+    document.querySelectorAll('[data-select-loaded]').forEach(function (cb) {
+      cb.checked = loaded.length > 0 && loadedSel === loaded.length;
+      cb.closest('.checkbox').classList.toggle('is-indeterminate', loadedSel > 0 && loadedSel < loaded.length);
+    });
+
+    /* Sort buttons */
+    document.querySelectorAll('[data-sort]').forEach(function (b) {
+      var on = q.sort && q.sort.key === b.getAttribute('data-sort');
+      b.classList.toggle('is-active', !!on);
+      b.querySelector('use').setAttribute('href', on ? (q.sort.dir > 0 ? '#order-arrow-up' : '#order-arrow-down') : '#order-arrow');
+    });
+
+    /* Cards */
+    document.querySelectorAll('[data-filter]').forEach(function (c) {
+      c.setAttribute('aria-pressed', String((c.getAttribute('data-filter') || null) === q.filter));
+    });
+
+    if (focusId) {
+      var btn = rowsEl.querySelector('[data-toggle="' + focusId + '"]');
+      if (btn) btn.focus();
+    }
+  }
+
+  function register(list) { list.forEach(function (t) { nodes[t.id] = t; }); }
+
+  /* ── Lazy loading: next batch ── */
+  function loadMore() {
+    if (loadingMore || (total !== null && rows.length >= total)) return;
+    loadingMore = true;
+    render();
+    var run = runId;
+    fetchPage(q, rows.length).then(function (res) {
+      if (run !== runId) return;
+      register(res.items);
+      rows = rows.concat(res.items);
+      total = res.total;
+      itemTotal = res.itemTotal;
+      loadingMore = false;
+      render();
+      var first = rows.length === res.items.length;
+      announcer.textContent = isFlat(q) && first ? total + ' Results Found'
+        : res.items.length + (first ? ' Tasks Loaded' : ' More Tasks Loaded');
+      checkScroll();
+    });
+  }
+
+  function checkScroll() {
+    if (pageEl.scrollHeight - pageEl.scrollTop - pageEl.clientHeight < 160) loadMore();
+  }
+
+  /* ── Lazy loading: subtasks of one parent, on first expand ── */
+  function toggle(id) {
+    var t = nodes[id];
+    if (!t || t.loading) return;
+    if (t.expanded) { t.expanded = false; render(id); return; }
+    if (t.children) { t.expanded = true; render(id); return; }
+    t.loading = true;
+    render();
+    var run = runId;
+    fetchChildren(id, q).then(function (kids) {
+      if (run !== runId) return;
+      register(kids);
+      t.children = kids;
+      t.loading = false;
+      t.expanded = true;
+      render(id);
+      announcer.textContent = kids.length + ' Subtasks Loaded for ' + t.title;
+    });
+  }
+
+  /* Any change of search / filter / sort reloads the list from the top and clears the selection */
+  function reload() {
+    runId++;
+    timers.forEach(clearTimeout);
+    timers = [];
+    rows = [];
+    nodes = {};
+    total = null;
+    itemTotal = 0;
+    loadingMore = false;
+    resetSelection();
+    pageEl.scrollTop = 0;
+    loadMore();
+  }
+
+  function loadCounts() {
+    document.querySelectorAll('[data-count]').forEach(function (el) { el.innerHTML = '<span class="sk" aria-label="Loading" role="img"></span>'; });
+    fetchCounts().then(function (c) {
+      document.querySelectorAll('[data-count]').forEach(function (el) { el.textContent = c[el.getAttribute('data-count')]; });
+    });
+  }
+
+  /* ── Events ── */
+  rowsEl.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-toggle]');
+    if (btn) { toggle(btn.getAttribute('data-toggle')); return; }
+    if (e.target.closest('a')) e.preventDefault();
+  });
+
+  rowsEl.addEventListener('change', function (e) {
+    var id = e.target.getAttribute('data-check');
+    if (!id) return;
+    setSel(id, e.target.checked);
+    render();
+  });
+
+  document.querySelectorAll('[data-select-loaded]').forEach(function (cb) {
+    cb.addEventListener('change', function () {
+      if (cb.checked) Object.keys(nodes).forEach(function (id) { setSel(id, true); });
+      else resetSelection();
+      render();
+    });
+  });
+
+  $('select-everything').addEventListener('click', function () {
+    sel = { all: true, ids: {}, excluded: {} };
+    render();
+    announcer.textContent = 'All ' + itemTotal + ' Items Selected';
+  });
+  $('clear-selection').addEventListener('click', function () { resetSelection(); render(); });
+
+  var debounce;
+  function applySearch() {
+    clearTimeout(debounce);
+    var v = searchEl.value.trim();
+    if (v === q.search) return;
+    q.search = v;
+    reload();
+  }
+  searchEl.addEventListener('input', function () {
+    $('search-clear').hidden = !searchEl.value;
+    clearTimeout(debounce);
+    debounce = setTimeout(applySearch, 400);
+  });
+  searchEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') applySearch(); });
+  $('search-submit').addEventListener('click', applySearch);
+  $('search-clear').addEventListener('click', function () {
+    searchEl.value = '';
+    $('search-clear').hidden = true;
+    applySearch();
+    searchEl.focus();
+  });
+
+  $('quick-filters').addEventListener('click', function (e) {
+    var card = e.target.closest('[data-filter]');
+    if (!card) return;
+    var f = card.getAttribute('data-filter') || null;
+    q.filter = q.filter === f ? null : f;
+    reload();
+  });
+
+  $('results-clear').addEventListener('click', function () {
+    searchEl.value = '';
+    $('search-clear').hidden = true;
+    q.search = '';
+    q.filter = null;
+    reload();
+  });
+
+  document.querySelectorAll('[data-sort]').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var key = b.getAttribute('data-sort');
+      q.sort = q.sort && q.sort.key === key ? { key: key, dir: -q.sort.dir } : { key: key, dir: 1 };
+      reload();
+    });
+  });
+
+  pageEl.addEventListener('scroll', checkScroll);
+  window.addEventListener('resize', checkScroll);
+
+  /* ── Prototype controls ── */
+  $('latency').addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-latency]');
+    if (!btn) return;
+    latency = parseInt(btn.getAttribute('data-latency'), 10);
+    this.querySelectorAll('[data-latency]').forEach(function (b) {
+      b.classList.toggle('is-active', b === btn);
+      b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+    });
+  });
+
+  function start() {
+    q = { search: '', filter: null, sort: null };
+    searchEl.value = '';
+    $('search-clear').hidden = true;
+    reload();
+    loadCounts();
+  }
+  $('reset').addEventListener('click', start);
+
+  start();
+})();
+</script>
+
+</body>
+</html>
